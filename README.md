@@ -1,7 +1,6 @@
 - 👋 Hi, I’m @CatCatcher1 Batuhan Altuntaş
-- 👀 I’m interested in ... coding and data science
-- 🌱 I’m currently learning ... SQL
-- 💞️ I’m looking to collaborate on ... 
+- 👀 I’m interested in bioinformatics and data 
+- 🌱 I'm currently exploring bioinformatics packages in Python and R.
 - 📫 How to reach me ... altuntas17@itu.edu.tr
 
 <!---
