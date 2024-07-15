@@ -1,0 +1,358 @@
+
+
+#%%
+import pandas as pd
+import numpy as np
+import seaborn as sn
+import matplotlib.pyplot as plt
+
+
+from rdkit.Chem import AllChem
+from rdkit.Chem import rdMolDescriptors
+from rdkit.Chem.Draw import IPythonConsole
+from rdkit.Chem import Draw
+from rdkit import DataStructs
+from rdkit.ML.Cluster import Butina
+from rdkit.Chem import PandasTools
+from rdkit.Chem import MolFromSmiles
+
+from tqdm import tqdm
+
+import warnings
+warnings.filterwarnings('ignore')
+
+
+from rdkit.Chem import Descriptors
+from rdkit.ML.Descriptors import MoleculeDescriptors
+from rdkit import Chem
+import os 
+
+
+
+#%%
+# steğ 1 load and remove the nan
+
+os.chdir(r'C:\Users\Batuhan\Desktop\Bitirme Projesi\kodlar')
+dataset = pd.read_csv('Data.csv',sep=';')
+
+#%%
+
+k=[]
+for i in range(len(dataset)):
+    if str(dataset['Smiles'][i]) == 'None' or str(dataset['Smiles'][i]) == 'nan' :
+        print(i)
+        k.append(i)           
+#for i in range(1):
+dataset.drop(k, axis=0, inplace=True) 
+
+
+dataset=dataset.sort_values(by=['pChEMBL Value'],ascending=False)
+dataset =dataset.reset_index(drop=True)
+
+
+
+#%%
+lenofdataset=len(dataset)
+k=[]
+for i in range(lenofdataset):
+    if str(dataset['pChEMBL Value'][i])=='nan':
+        print (i)
+        k.append(i)
+        
+dataset.drop(k, axis=0, inplace=True)
+dataset =dataset.reset_index(drop=True)
+
+
+
+#%%
+###
+for i in range(1):
+    dataset.drop(k[i], axis=0, inplace=True)
+#%%
+
+# Create a list for duplicate smiles
+# aynı data iki kere olabilir çıkarmamız lazım
+duplicates_smiles = dataset[dataset['Smiles'].duplicated()]['Smiles'].values
+len(duplicates_smiles)   
+
+#%%    
+# Create a list for duplicate smiles
+#veri setindeki duplicateleri düşürür.
+dataset[dataset['Smiles'].isin(duplicates_smiles)].sort_values(by=['Smiles'])
+
+dataset = dataset.drop_duplicates(subset=['Smiles'])
+len(dataset)   
+
+#%% 
+
+dataset= dataset.reset_index (drop = True)    
+
+#%%
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from rdkit import Chem
+from rdkit import DataStructs
+from rdkit.Chem import rdFingerprintGenerator
+from rdkit.Chem import PandasTools
+#%%
+# here we compute the morgan FP with diameter 2048
+PandasTools.AddMoleculeColumnToFrame(dataset, 'Smiles', 'Structures')
+molecules = dataset['Structures'].to_numpy()
+mols_fps = [AllChem.GetMorganFingerprintAsBitVect(x, 3) for x in molecules]
+
+
+
+
+
+arr = np.zeros((len(molecules), 2048))
+for i in range(len(molecules)):
+    sim_ref3 = mols_fps[i].ToList()
+    arr[i, :] = np.array(sim_ref3)
+#%%
+arrcorr = np.corrcoef(arr, rowvar=True)
+
+plt.figure(92)
+plt.imshow(arrcorr,cmap='rainbow')
+plt.colorbar()
+
+print (np.mean(arrcorr))
+
+np.save('myarray',arr)
+#%%
+
+def tanimotosim(vec1, vec2):
+    numerator = np.dot(vec1, vec2)
+    v1norm = (sum(vec1**2))
+    v2norm = (sum(vec2**2))
+    t = numerator/(v1norm+v2norm-numerator)
+    return t
+
+
+
+
+# %%
+tanisim = np.zeros((len(arr), len(arr)))
+for i in range(len(arr)):
+    for j in range(len(arr)):
+        tanisim[i, j] = tanimotosim(arr[i, :], arr[j, :])
+
+
+#%%
+plt.figure(92)
+plt.imshow(tanisim,cmap='rainbow')
+plt.colorbar()
+
+
+np.save('tanimotosimilarityarray',tanisim)
+
+molesim=np.load('tanimotosimilarityarray.npy')
+
+
+print (np.mean(tanisim))
+
+
+#%%
+# Creating molecules and storing them in an array for the first 15 ligands
+molecules = [Chem.MolFromSmiles(smiles) for smiles in dataset["Smiles"][:]]
+#%%
+# Creating fingerprints for all molecules
+rdkit_gen = rdFingerprintGenerator.GetRDKitFPGenerator(maxPath=7)
+fingerprints = [rdkit_gen.GetFingerprint(mol) for mol in molecules]
+#%%
+# Calculating number of fingerprints
+num_fingerprints = len(fingerprints)
+print("Number of fingerprints:", num_fingerprints)
+#%%
+# Calculating pairwise Tanimoto similarities for the first 15 ligands
+similarities = np.zeros((num_fingerprints, num_fingerprints))
+for i in range(1, num_fingerprints):
+    similarity = DataStructs.BulkTanimotoSimilarity(fingerprints[i], fingerprints[:i])
+    similarities[i, :i] = similarity
+    similarities[:i, i] = similarity
+#%%
+# Visualizing the similarities as a heatmap
+sns.set(font_scale=1.2)
+labels = dataset.index.tolist()[:15]  # Assuming ligand names are stored in the index
+plot = sns.heatmap(similarities, annot=True, fmt=".2f", cmap="YlGnBu",
+                   xticklabels=labels, yticklabels=labels,
+                   square=True, linewidths=.5, cbar_kws={"shrink": .5})
+plt.title('Heatmap of Tanimoto Similarities for the First 15 Ligands')
+plt.xlabel('Ligands')
+plt.ylabel('Ligands')
+plt.show()
+
+# Saving the plot
+plot.get_figure().savefig("tanimoto_similarity_heatmap_first_15.png")
+
+
+# Saving the plot
+plot.get_figure().savefig("lower_triangular_tanimoto_similarity_heatmap.png")
+
+#%%
+
+# Extracting lower triangular part of the similarity matrix
+lower_triangular = np.tril(similarities, k=-1)
+
+# Visualizing the lower triangular part as a heatmap
+sns.set(font_scale=2)
+labels = dataset.index.tolist()[:15]  # Assuming ligand names are stored in the index
+plot = sns.heatmap(lower_triangular, annot=False, fmt=".2f", cmap="YlGnBu",
+                   xticklabels=labels, yticklabels=labels,
+                   square=True, linewidths=.5, cbar_kws={"shrink": .5})
+plt.title('Lower Triangular Heatmap of Tanimoto Similarities for the First 15 Ligands')
+plt.xlabel('Ligands')
+plt.ylabel('Ligands')
+plt.show()
+
+# Saving the plot
+plot.get_figure().savefig("lower_triangular_tanimoto_similarity_heatmap_first_15.png")
+
+#%%
+
+
+
+def RDkit_descriptors(smiles):
+    params = Chem.SmilesParserParams()
+    params.removeHs = False
+    mols = [MolFromSmiles(i,params) for i in smiles] 
+    #print (mols.GetNumAtoms())
+    calc = MoleculeDescriptors.MolecularDescriptorCalculator([x[0] for x in Descriptors._descList])
+    desc_names = calc.GetDescriptorNames()
+
+    # here we create an emptry array 
+    Mol_descriptors =[]
+    for mol in mols:
+        # add hydrogens to molecules
+        #mol=Chem.AddHs(mol)
+        #mol=AllChem.EmbedMolecule(mol)
+        # Calculate all 200 descriptors for each molecule
+        descriptors = calc.CalcDescriptors(mol)
+        Mol_descriptors.append(descriptors)
+    return Mol_descriptors,desc_names,calc,mols
+
+# Function call
+y=dataset['Smiles'].to_numpy()
+Mol_descriptors2,desc_names2,calc2,mols2 = RDkit_descriptors(y[:])
+sting1_descriptors=pd.DataFrame()
+sting1_descriptors = pd.DataFrame(Mol_descriptors2,columns=desc_names2)
+rdkitdataall = sting1_descriptors.to_numpy()
+
+#%%
+
+arrsub=np.concatenate((arr[:150,:],arr[200:,:]))
+
+arrlabel=np.zeros(217)
+for i in range(217):
+    if i<150:
+        arrlabel[i]=1
+    else:
+        arrlabel[i]=0
+
+#%%
+
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+
+decision_tree_model = DecisionTreeClassifier()
+from sklearn.metrics import accuracy_score
+
+
+X_train, X_test, y_train, y_test = train_test_split(arrsub, arrlabel, test_size=0.20,random_state=42)
+decision_tree_model.fit(X_train, y_train)
+decision_tree_predictions = decision_tree_model.predict(X_test)
+accuracy = accuracy_score(y_test,decision_tree_predictions )
+print("Accuracy:", accuracy)
+
+#%%
+
+from sklearn.svm import LinearSVC
+#svm_model = LinearSVC(dual=False, random_state=42, tol=1e-02)
+#svm_model = LinearSVC()
+
+# K-Nearest Neighbors (KNN)
+from sklearn.neighbors import KNeighborsClassifier
+knn_model = KNeighborsClassifier()
+
+# K Means Clustring
+from sklearn.cluster import KMeans
+kmeans_model = KMeans(n_clusters=2, random_state=0,
+                      n_init=1) # assuming 2 clusters
+#Naive Bayes
+from sklearn.naive_bayes import GaussianNB
+naive_bayes_model = GaussianNB()
+
+#Neural Network (multi-layer perceptron)
+from sklearn.neural_network import MLPClassifier
+nn_model =MLPClassifier(max_iter=1000) # Assuming 1000 iterations
+nn_model.fit(X_train, y_train)
+nn_predictions = nn_model.predict(X_test)
+""" accuracy = accuracy_score(y_test, allPredictions[:,i]) """
+nn_accuracy = accuracy_score(y_test, nn_predictions)
+print(nn_accuracy)
+
+from sklearn.ensemble import GradientBoostingClassifier
+GradientBoosting_model = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0,
+max_depth=1, random_state=0)
+
+# step 2
+# burada X ve y versini split ediyoruz
+# y verisi labelleri gösteriyor (0 ve 1 verisi aktivite IC50 ye göre ayırdım)
+# bu sonuçlar STING1_rd_program_descrip..... kodundan geliyor
+# split the data into training and test sets
+
+#X=mp.transpose(maccsfingarr)
+
+#%%
+X=arrfinalselected # tüm veri active ve inactive olanlar dahil
+# tüm veri active inactive olanlar dahil
+
+#%%
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score
+
+# Örnek veri yükleme
+# data = pd.read_csv('data.csv')
+# X = data[relevant_features]
+# y = data['target']
+
+# Farklı test boyutları ve iterasyon sayıları için sonuçları saklayacak liste
+results = []
+
+# Farklı test boyutları ve iterasyon sayıları
+test_sizes = [0.2, 0.3, 0.4]
+iterations = [500, 1000, 1500]
+
+for test_size in test_sizes:
+    for max_iter in iterations:
+        # Veri setini train ve test olarak bölme
+        X_train, X_test, y_train, y_test = train_test_split(arrsub, arrlabel, test_size=test_size, random_state=42)
+        
+        # MLPClassifier modelini oluşturma ve eğitme
+        nn_model = MLPClassifier(max_iter=max_iter)
+        nn_model.fit(X_train, y_train)
+        
+        # Test seti üzerinde tahmin yapma
+        nn_predictions = nn_model.predict(X_test)
+        
+        # Model doğruluğunu hesaplama
+        nn_accuracy = accuracy_score(y_test, nn_predictions)
+        
+        # Sonuçları saklama
+        results.append((test_size, max_iter, nn_accuracy))
+
+# Sonuçları pandas DataFrame'e aktarma
+df_results = pd.DataFrame(results, columns=['Test Size', 'Iterations', 'Accuracy'])
+
+# Accuracy değerlerini yüzdelik olarak formatlama
+df_results['Accuracy'] = df_results['Accuracy'] * 100
+df_results['Accuracy'] = df_results['Accuracy'].map('{:.2f}%'.format)
+
+# Sonuçları yazdırma
+print(df_results)
